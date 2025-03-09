@@ -33,6 +33,7 @@ Ejecuta el script desde la terminal:
 ./DockerAuditor.sh
 ```
 El script solicitará la ruta y nombre del archivo para guardar el informe de auditoría. Una vez completado, el informe estará disponible en el archivo especificado.
+
 ![DockerAuditorResultado](img/foto2.png)
 ![InformeDockerAuditor](img/foto3.png)
 
