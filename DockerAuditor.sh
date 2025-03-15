@@ -1,20 +1,7 @@
 #!/bin/bash
 # DockerAuditor - Auditoría Forense de Docker
-# Este script recopila información detallada del entorno Docker para análisis forense.
-# Recopila:
-#   - Información general (versiones, info del daemon, uso de disco)
-#   - Auditoría de contenedores (inspección, comando de inicio, logs y, en lo posible, historial interno)
-#   - Auditoría de imágenes (inspección y historial de construcción)
-#   - Auditoría de redes, volúmenes y plugins
-#   - Un resumen final en forma de tabla
-#
-# Uso: ./DockerAuditor.sh
-#
-# Autor: [Tu Nombre]
-# Fecha: [Fecha Actual]
 
 # --- Banner ---
-clear
 clear
 echo "   ____             _                  _             _ _ _      "
 echo "  |  _ \  ___   ___| | _____ _ __     / \  _   _  __| (_) |_ ___  _ __ "
@@ -25,23 +12,19 @@ echo ""
 echo "---- By: MARH ----------------------------------------------------------"
 echo ""
 
+# Preguntar la ruta donde se guardará el archivo de salida
+read -p "Ingrese la ruta completa donde desea guardar el informe (ejemplo: /home/usuario/): " OUTPUT_DIR
 
-# Función para escribir tanto en pantalla como en el archivo de informe
-append_output() {
-    echo -e "$1" | tee -a "$OUTPUT_FILE"
-}
-
-# Verificar que Docker esté instalado
-if ! command -v docker &>/dev/null; then
-    echo "Docker no está instalado en este sistema. Abortando."
+# Verificar si la ruta ingresada existe
+if [ ! -d "$OUTPUT_DIR" ]; then
+    echo "Error: La ruta ingresada no existe. Abortando."
     exit 1
 fi
 
-# Solicitar al usuario la ruta y nombre del archivo de salida
-echo "Ingrese la ruta completa y nombre del archivo donde desea guardar el informe (ejemplo: /home/usuario/informe_docker.txt):"
-read OUTPUT_FILE
+# Generar el nombre del archivo con timestamp
+OUTPUT_FILE="${OUTPUT_DIR}/docker_audit_$(date +"%Y%m%d%H%M%S").txt"
 
-# Inicializar el archivo de informe con banner y fecha
+# Inicializar el archivo de informe
 {
 echo "============================================="
 echo "             DockerAuditor                 "
@@ -49,125 +32,166 @@ echo "       Auditoría Forense de Docker         "
 echo "============================================="
 echo "Fecha: $(date)"
 echo "============================================="
+echo ""
 } > "$OUTPUT_FILE"
 
-# --- Sección 1: Información General ---
-append_output "\n[1] Información General de Docker:"
-append_output "-------------------------------------------------"
-docker version >> "$OUTPUT_FILE" 2>&1
-docker info >> "$OUTPUT_FILE" 2>&1
-append_output "-------------------------------------------------"
+# --- Iniciar auditoría y mostrar proceso en consola ---
+echo "Iniciando la auditoría de Docker..."
 
-# Información de uso del sistema Docker
-append_output "\n[2] Uso del sistema Docker (docker system df):"
-docker system df >> "$OUTPUT_FILE" 2>&1
+# Información General
+echo "[1] Información General de Docker..."
+echo "Obteniendo información general de Docker..."
+{
+    echo "*****************************"
+    echo "1. INFORMACIÓN GENERAL"
+    echo "*****************************"
+    sudo docker version
+    sudo docker info
+} >> "$OUTPUT_FILE" 2>&1
 
-# --- Sección 2: Auditoría de Contenedores ---
-append_output "\n[3] Listado y Auditoría de Contenedores:"
-docker ps -a >> "$OUTPUT_FILE" 2>&1
-total_containers=$(docker ps -aq | wc -l)
-append_output "\nTotal de contenedores: $total_containers"
+# Pausa de 2 segundos
+sleep 2
 
-for container in $(docker ps -aq); do
-    append_output "\n-------------------------------------------------"
-    append_output "Contenedor ID: $container"
-    
-    # Inspección completa del contenedor
-    append_output "\n* Inspección del contenedor:"
-    docker inspect "$container" >> "$OUTPUT_FILE" 2>&1
+# Uso del sistema
+echo "[2] Uso del sistema Docker..."
+echo "Analizando el uso del sistema Docker..."
+{
+    echo "*****************************"
+    echo "2. USO DEL SISTEMA"
+    echo "*****************************"
+    sudo docker system df
+} >> "$OUTPUT_FILE" 2>&1
 
-    # Extraer el comando de inicio (Path y Args)
-    container_cmd=$(docker inspect --format '{{.Path}} {{range .Args}} {{.}} {{end}}' "$container" 2>/dev/null)
-    append_output "\n* Comando de inicio: $container_cmd"
+# Pausa de 2 segundos
+sleep 2
 
-    # Intento de extraer el historial de comandos interno (si existe)
-    append_output "\n* Historial de comandos interno (si existe):"
-    if docker exec "$container" test -f /root/.bash_history 2>/dev/null; then
-        history=$(docker exec "$container" cat /root/.bash_history 2>/dev/null)
-        append_output "Historial (/root/.bash_history):\n$history"
-    elif docker exec "$container" test -f /home/$(whoami)/.bash_history 2>/dev/null; then
-        history=$(docker exec "$container" cat /home/$(whoami)/.bash_history 2>/dev/null)
-        append_output "Historial (/home/$(whoami)/.bash_history):\n$history"
+# Auditoría de Contenedores
+echo "[3] Analizando contenedores..."
+echo "Obteniendo lista de contenedores..."
+{
+    echo "*****************************"
+    echo "3. CONTENEDORES"
+    echo "*****************************"
+    sudo docker ps -a
+} >> "$OUTPUT_FILE" 2>&1
+
+# Pausa de 2 segundos
+sleep 2
+
+# Auditoría de Imágenes
+echo "[4] Analizando imágenes..."
+echo "Obteniendo lista de imágenes..."
+{
+    echo "*****************************"
+    echo "4. IMÁGENES"
+    echo "*****************************"
+    sudo docker images
+} >> "$OUTPUT_FILE" 2>&1
+
+# Pausa de 2 segundos
+sleep 2
+
+# Auditoría de Redes
+echo "[5] Analizando redes..."
+echo "Obteniendo lista de redes..."
+{
+    echo "*****************************"
+    echo "5. REDES"
+    echo "*****************************"
+    sudo docker network ls
+} >> "$OUTPUT_FILE" 2>&1
+
+# Pausa de 2 segundos
+sleep 2
+
+# Auditoría de Volúmenes
+echo "[6] Analizando volúmenes..."
+echo "Obteniendo lista de volúmenes..."
+{
+    echo "*****************************"
+    echo "6. VOLÚMENES"
+    echo "*****************************"
+    sudo docker volume ls
+} >> "$OUTPUT_FILE" 2>&1
+
+# Pausa de 2 segundos
+sleep 2
+
+# Auditoría de Plugins
+echo "[7] Analizando plugins..."
+echo "Obteniendo lista de plugins..."
+{
+    echo "*****************************"
+    echo "7. PLUGINS"
+    echo "*****************************"
+    sudo docker plugin ls
+} >> "$OUTPUT_FILE" 2>&1
+
+# Pausa de 2 segundos
+sleep 2
+
+# --- Implementación de Checkov ---
+echo "[8] Ejecutando Checkov para análisis de seguridad..."
+echo "Analizando seguridad con Checkov en configuraciones de Docker..."
+# Verificar si existen archivos Dockerfile o docker-compose.yml
+if [ ! -f Dockerfile ] && [ ! -f docker-compose.yml ]; then
+    {
+        echo "*****************************"
+        echo "8. CHECKOV"
+        echo "*****************************"
+        echo "No se encontraron archivos Dockerfile o docker-compose.yml en el directorio actual."
+        echo "No se realizó el análisis de seguridad con Checkov."
+    } >> "$OUTPUT_FILE"
+else
+    checkov -d . --output json > checkov_output.json 2>&1
+    if [ $? -eq 0 ]; then
+        {
+            echo "*****************************"
+            echo "8. CHECKOV"
+            echo "*****************************"
+            echo "Análisis de Checkov completado con éxito. Resultados guardados."
+        } >> "$OUTPUT_FILE"
     else
-        append_output "No se encontró historial de comandos dentro del contenedor."
+        {
+            echo "*****************************"
+            echo "8. CHECKOV"
+            echo "*****************************"
+            echo "Error al ejecutar Checkov, pero el análisis continuará."
+        } >> "$OUTPUT_FILE"
     fi
+    cat checkov_output.json >> "$OUTPUT_FILE"
+fi
 
-    # Mostrar logs del contenedor (últimas 200 líneas)
-    append_output "\n* Logs del contenedor (últimas 200 líneas):"
-    docker logs --tail 200 "$container" >> "$OUTPUT_FILE" 2>&1
-done
+# Pausa de 2 segundos
+sleep 2
 
-# --- Sección 3: Auditoría de Imágenes ---
-append_output "\n[4] Listado y Auditoría de Imágenes:"
-docker images >> "$OUTPUT_FILE" 2>&1
-total_images=$(docker images -q | sort -u | wc -l)
-append_output "\nTotal de imágenes: $total_images"
+# Mostrar solo la tabla resumen en consola
+echo ""
+echo "================ Resumen de Auditoría ================"
+echo "Información General: Docker version: $(sudo docker version --format '{{.Server.Version}}')"
+echo "Contenedores: Total: $(sudo docker ps -aq | wc -l), Activos: $(sudo docker ps -q | wc -l), Detenidos: $(( $(sudo docker ps -aq | wc -l) - $(sudo docker ps -q | wc -l) ))"
+echo "Imágenes: Total: $(sudo docker images -q | sort -u | wc -l)"
+echo "Redes: Total: $(sudo docker network ls -q | wc -l)"
+echo "Volúmenes: Total: $(sudo docker volume ls -q | wc -l)"
+echo "Plugins: Total: $(sudo docker plugin ls -q | wc -l)"
+echo "======================================================"
 
-for image in $(docker images -q | sort -u); do
-    append_output "\n-------------------------------------------------"
-    append_output "Imagen ID: $image"
-    
-    # Inspección completa de la imagen
-    append_output "\n* Inspección de la imagen:"
-    docker inspect "$image" >> "$OUTPUT_FILE" 2>&1
-    
-    # Historial de la imagen (comandos del Dockerfile)
-    append_output "\n* Historial de la imagen (docker history):"
-    docker history "$image" >> "$OUTPUT_FILE" 2>&1
-done
+# Tabla resumen en archivo
+{
+    echo "***********************************************"
+    echo "                  Tabla Resumen               "
+    echo "***********************************************"
+    printf "%-20s %-40s\n" "Componente" "Detalles"
+    printf "%-20s %-40s\n" "--------------------" "----------------------------------------"
+    printf "%-20s %-40s\n" "Docker Version:" "$(sudo docker version --format '{{.Server.Version}}')"
+    printf "%-20s %-40s\n" "Contenedores:" "Total: $(sudo docker ps -aq | wc -l), Activos: $(sudo docker ps -q | wc -l), Detenidos: $(( $(sudo docker ps -aq | wc -l) - $(sudo docker ps -q | wc -l) ))"
+    printf "%-20s %-40s\n" "Imágenes:" "Total: $(sudo docker images -q | sort -u | wc -l)"
+    printf "%-20s %-40s\n" "Redes:" "Total: $(sudo docker network ls -q | wc -l)"
+    printf "%-20s %-40s\n" "Volúmenes:" "Total: $(sudo docker volume ls -q | wc -l)"
+    printf "%-20s %-40s\n" "Plugins:" "Total: $(sudo docker plugin ls -q | wc -l)"
+    echo "***********************************************"
+    echo "***********************************************"
+} >> "$OUTPUT_FILE"
 
-# --- Sección 4: Auditoría de Redes ---
-append_output "\n[5] Listado y Auditoría de Redes Docker:"
-docker network ls >> "$OUTPUT_FILE" 2>&1
-total_networks=$(docker network ls -q | wc -l)
-append_output "\nTotal de redes: $total_networks"
-
-for network in $(docker network ls -q); do
-    append_output "\n-------------------------------------------------"
-    append_output "Red ID: $network"
-    append_output "\n* Inspección de la red:"
-    docker network inspect "$network" >> "$OUTPUT_FILE" 2>&1
-done
-
-# --- Sección 5: Auditoría de Volúmenes ---
-append_output "\n[6] Listado y Auditoría de Volúmenes Docker:"
-docker volume ls >> "$OUTPUT_FILE" 2>&1
-total_volumes=$(docker volume ls -q | wc -l)
-append_output "\nTotal de volúmenes: $total_volumes"
-
-for volume in $(docker volume ls -q); do
-    append_output "\n-------------------------------------------------"
-    append_output "Volumen: $volume"
-    append_output "\n* Inspección del volumen:"
-    docker volume inspect "$volume" >> "$OUTPUT_FILE" 2>&1
-done
-
-# --- Sección 6: Auditoría de Plugins ---
-append_output "\n[7] Listado y Auditoría de Plugins Docker:"
-docker plugin ls >> "$OUTPUT_FILE" 2>&1
-total_plugins=$(docker plugin ls -q | wc -l)
-append_output "\nTotal de plugins: $total_plugins"
-
-for plugin in $(docker plugin ls -q); do
-    append_output "\n-------------------------------------------------"
-    append_output "Plugin ID: $plugin"
-    append_output "\n* Inspección del plugin:"
-    docker plugin inspect "$plugin" >> "$OUTPUT_FILE" 2>&1
-done
-
-# --- Sección 7: Resumen General ---
-append_output "\n\n============================================="
-append_output "           Resumen del Entorno Docker        "
-append_output "============================================="
-printf "%-20s %-40s\n" "Componente" "Detalles" | tee -a "$OUTPUT_FILE"
-printf "%-20s %-40s\n" "--------------------" "----------------------------------------" | tee -a "$OUTPUT_FILE"
-
-docker_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null)
-printf "%-20s %-40s\n" "Docker Version:" "$docker_version" | tee -a "$OUTPUT_FILE"
-printf "%-20s %-40s\n" "Contenedores:" "Total: $total_containers" | tee -a "$OUTPUT_FILE"
-printf "%-20s %-40s\n" "Imágenes:" "Total: $total_images" | tee -a "$OUTPUT_FILE"
-printf "%-20s %-40s\n" "Redes:" "Total: $total_networks" | tee -a "$OUTPUT_FILE"
-printf "%-20s %-40s\n" "Volúmenes:" "Total: $total_volumes" | tee -a "$OUTPUT_FILE"
-printf "%-20s %-40s\n" "Plugins:" "Total: $total_plugins" | tee -a "$OUTPUT_FILE"
-
-append_output "\nLa auditoría se completó. El informe se ha guardado en: $OUTPUT_FILE"
+echo ""
+echo "La auditoría se completó. El informe se ha guardado en: $OUTPUT_FILE"
