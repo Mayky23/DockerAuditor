@@ -23,6 +23,20 @@ Este script en Bash recopila información detallada del entorno Docker en la má
 git clone https://github.com/Mayky23/DockerAuditor.git
 cd DockerAuditor
 ```
+(Opcional pero recomendado) Crea un entorno virtual:
+```bash
+python3 -m venv venv
+source venv/bin/activate  # En Windows: venv\Scripts\activate
+```
+
+# 🖥️​ Uso
+
+## Instalación de dependencias
+
+Antes de ejecutar el script, asegúrate de instalar las dependencias necesarias con:
+```bash
+pip install -r requirements.txt
+```
 2. Asigna permisos de ejecución al script:
 ```bash
 chmod +x DockerAuditor.sh
