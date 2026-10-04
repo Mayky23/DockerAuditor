@@ -156,12 +156,3 @@ Al principio de `DockerAuditor.sh` hay tres constantes que se pueden editar:
 | `LOG_TAIL` | `1000` | Líneas de log que se guardan por contenedor |
 | `EVENTS_SINCE` | `24h` | Antigüedad de los eventos del daemon que se recopilan |
 | `SEARCH_DEPTH` | `3` | Profundidad al buscar Dockerfile y compose en el proyecto |
-
-## 📜 Historial y licencia
-
-- Los cambios de cada versión están en [CHANGELOG.md](CHANGELOG.md).
-- Proyecto publicado bajo la licencia [MIT](LICENSE).
-
----
-
-Desarrollado por **MARH**.
