@@ -1,1 +1,2 @@
-checkov
+# Dependencia opcional: análisis de Dockerfile con Checkov.
+checkov>=3.2,<4

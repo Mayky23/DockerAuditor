@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck
+        run: shellcheck DockerAuditor.sh
+
+  auditoria:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Crear un contenedor inseguro de prueba
+        run: docker run -d --name prueba --privileged alpine:3.20 sleep 300
+      - name: Ejecutar DockerAuditor
+        run: |
+          mkdir -p "$RUNNER_TEMP/informe"
+          printf '%s\n%s\n' "$RUNNER_TEMP/informe" "$GITHUB_WORKSPACE" | ./DockerAuditor.sh
+      - name: Verificar el resultado
+        run: |
+          cd "$RUNNER_TEMP/informe"
+          sha256sum -c ./*.tar.gz.sha256
+          dir=$(find . -maxdepth 1 -type d -name 'docker_audit_*')
+          (cd "$dir" && sha256sum -c --quiet SHA256SUMS)
+          python3 -m json.tool "$dir/hallazgos.json" > /dev/null
+          grep -q 'modo privilegiado' "$dir/informe.txt"
