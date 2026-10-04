@@ -43,35 +43,43 @@ Si [Trivy](https://trivy.dev/) está instalado, se analiza cada imagen local bus
 
 ## ⚠️ Requisitos
 
+El script comprueba todas las dependencias cada vez que arranca y muestra cuáles están instaladas.
+
 **Obligatorios**
 
 - Linux con **Bash 4.4** o superior.
 - Docker instalado, con el daemon en marcha.
 - Acceso al daemon: ser root, pertenecer al grupo `docker` o tener `sudo`. El script solo usa `sudo` si hace falta.
-- `sha256sum` (o `shasum`) y `tar`, presentes en cualquier distribución.
+- Utilidades básicas del sistema, presentes en cualquier distribución: `sha256sum` (o `shasum`), `tar`, `gzip`, `find`, `grep`, `sed`…
 
-**Opcionales**, se usan automáticamente si están instalados:
+Si falta alguno, el script indica cuál y cómo instalarlo, y se detiene. Docker no se instala automáticamente: sin Docker no hay nada que auditar.
 
-| Herramienta | Para qué | Instalación |
+**Opcionales**
+
+| Herramienta | Para qué | Versión que instala el script |
 | --- | --- | --- |
-| Checkov | Buenas prácticas en Dockerfile | `pip install -r requirements.txt` |
-| Hadolint | Buenas prácticas en Dockerfile | [Releases de Hadolint](https://github.com/hadolint/hadolint/releases) |
-| Trivy | Vulnerabilidades de las imágenes | [Instalación de Trivy](https://trivy.dev/) |
+| [Checkov](https://www.checkov.io/) | Buenas prácticas en Dockerfile | La indicada en `requirements.txt` |
+| [Hadolint](https://github.com/hadolint/hadolint) | Buenas prácticas en Dockerfile | 2.15.1 |
+| [Trivy](https://trivy.dev/) | Vulnerabilidades de las imágenes | 0.75.0 |
+
+Si falta alguna, el script ofrece instalarla:
+
+- Se instala sin root, en `~/.local/share/dockerauditor`, sin tocar el sistema.
+- Checkov va en un entorno virtual de Python propio y necesita Python 3.9 o superior con el módulo `venv`.
+- Hadolint y Trivy se descargan de sus releases oficiales en GitHub. Antes de instalarlos, el script comprueba su SHA-256 y descarta la descarga si no coincide.
+- Se usan `curl` o `wget` para descargar.
+
+Las versiones ya instaladas en el sistema también se aprovechan.
 
 ## 🛠️ Instalación
 
 ```bash
 git clone https://github.com/Mayky23/DockerAuditor.git
 cd DockerAuditor
+./DockerAuditor.sh
 ```
 
-Para usar Checkov, instálalo preferiblemente en un entorno virtual:
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
+No hace falta instalar nada más: en la primera ejecución, el script comprueba las dependencias y ofrece instalar las herramientas opcionales que falten.
 
 ## 🖥️ Uso
 
@@ -79,14 +87,15 @@ pip install -r requirements.txt
 ./DockerAuditor.sh
 ```
 
-La herramienta no tiene opciones. Al empezar hace dos preguntas:
+La herramienta no tiene opciones. Al empezar:
 
-1. **Directorio donde guardar el informe.** Pulsa Enter para usar el directorio actual. Se admite `~`.
-2. **Directorio del proyecto** con Dockerfile o compose que analizar. Pulsa Enter para usar el directorio actual o escribe `n` para omitir este paso.
+1. **Comprueba las dependencias.** Si falta alguna herramienta opcional, pregunta si se instala; pulsa Enter para aceptar o escribe `n` para seguir sin ella.
+2. **Pregunta dónde guardar el informe.** Pulsa Enter para usar el directorio actual. Se admite `~`.
+3. **Pregunta qué proyecto analizar**, con Dockerfile o compose. Pulsa Enter para usar el directorio actual o escribe `n` para omitir este paso.
 
 Si el usuario no tiene acceso al socket de Docker, el script lo indica y pide la contraseña de `sudo`.
 
-Las respuestas también pueden llegar por la entrada estándar, lo que permite automatizar la auditoría (cron, CI…):
+Las respuestas también pueden llegar por la entrada estándar, lo que permite automatizar la auditoría (cron, CI…). En ese modo no se instala nada: solo se usan las herramientas que ya estén instaladas.
 
 ```bash
 printf '%s\n' /srv/auditorias n | ./DockerAuditor.sh
@@ -149,10 +158,14 @@ cd docker_audit_<equipo>_<fecha> && sha256sum -c SHA256SUMS
 
 ## ⚙️ Ajustes
 
-Al principio de `DockerAuditor.sh` hay tres constantes que se pueden editar:
+Al principio de `DockerAuditor.sh` hay varias constantes que se pueden editar:
 
 | Constante | Valor por defecto | Uso |
 | --- | --- | --- |
 | `LOG_TAIL` | `1000` | Líneas de log que se guardan por contenedor |
 | `EVENTS_SINCE` | `24h` | Antigüedad de los eventos del daemon que se recopilan |
 | `SEARCH_DEPTH` | `3` | Profundidad al buscar Dockerfile y compose en el proyecto |
+| `TOOLS_DIR` | `~/.local/share/dockerauditor` | Dónde se instalan las herramientas opcionales |
+| `HADOLINT_VERSION`, `TRIVY_VERSION` | `2.15.1`, `0.75.0` | Versiones que se instalan |
+
+Si cambias `HADOLINT_VERSION` o `TRIVY_VERSION`, actualiza también su SHA-256 en `TOOL_SHA256`. Si no coincide, la descarga se rechaza.

@@ -5,6 +5,9 @@
 # plugins, detecta configuraciones inseguras y genera un informe acompañado de
 # hashes SHA-256 que permiten verificar la integridad de las evidencias.
 #
+# Al arrancar comprueba que todas las dependencias están instaladas y ofrece
+# instalar las herramientas opcionales que falten (Checkov, Hadolint y Trivy).
+#
 # Uso: ./DockerAuditor.sh   (no tiene opciones: lo necesario se pregunta al inicio)
 #
 # Códigos de salida:
@@ -27,7 +30,7 @@ umask 077
 
 # --- Configuración -----------------------------------------------------------
 
-readonly VERSION="3.0"
+readonly VERSION="3.1"
 readonly LOG_TAIL=1000        # líneas de log que se guardan por contenedor
 readonly EVENTS_SINCE="24h"   # antigüedad de los eventos del daemon que se recopilan
 readonly SEARCH_DEPTH=3       # profundidad al buscar Dockerfile/compose en el proyecto
@@ -35,6 +38,22 @@ readonly TOTAL_STEPS=11
 readonly RULE="================================================================="
 readonly SEP=$'\x1f'          # separador interno de campos (no aparece en los datos)
 readonly SEVERITIES=(CRITICO ALTO MEDIO BAJO INFO)
+
+# Herramientas opcionales que el script puede instalar (sin root) en TOOLS_DIR.
+# Las descargas se verifican con estos SHA-256 antes de usarlas.
+readonly TOOLS_DIR="${XDG_DATA_HOME:-${HOME:-.}/.local/share}/dockerauditor"
+readonly HADOLINT_VERSION="2.15.1"
+readonly TRIVY_VERSION="0.75.0"
+declare -rA TOOL_SHA256=(
+    [hadolint-x86_64]="c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507"
+    [hadolint-arm64]="f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d"
+    [trivy-x86_64]="c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f"
+    [trivy-arm64]="a1ee9f6ffb7d112b64ff726a2a0717c21175c1114361391f4a132956751a13b3"
+)
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P) || SCRIPT_DIR=$PWD
+readonly SCRIPT_DIR
+# Utilidades del sistema que usa el script además de docker.
+readonly REQUIRED_UTILS=(tar gzip find sort grep sed cut paste tr head tail xargs stat date uname id cat cp mv rm mkdir rmdir chmod ln mktemp dirname)
 # Nombres de variables que suelen contener secretos.
 readonly SECRET_WORDS='PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIAL'
 readonly SECRET_NAME_RE="(${SECRET_WORDS}|(^|_)PASS(\$|_))"
@@ -109,6 +128,8 @@ declare -A CSTATE=() IMAGE_TAGS=()
 
 say()  { printf '%s\n' "$@"; }
 ok()   { printf '  %s✔%s %s\n' "$C_GRN" "$C_RST" "$*"; }
+fail() { printf '  %s✖%s %s\n' "$C_RED" "$C_RST" "$*"; }
+note() { printf '  %s! %s%s\n' "$C_YEL" "$*" "$C_RST"; }
 step() {
     STEP=$((STEP + 1))
     printf '\n%s[%d/%d]%s %s\n' "$C_BLU" "$STEP" "$TOTAL_STEPS" "$C_RST" "$*"
@@ -313,21 +334,180 @@ setup_docker_access() {
     if [[ $DOCKER_ENDPOINT == unix://* ]]; then
         SOCKET_PATH=${DOCKER_ENDPOINT#unix://}
     fi
+    ok "Daemon de Docker accesible$([[ ${DOCKER[0]} == sudo ]] && echo " (con sudo)") en $DOCKER_ENDPOINT"
 }
 
-detect_tools() {
+# --- Dependencias -------------------------------------------------------------
+
+# Comprueba todas las dependencias. Si falta alguna obligatoria se detiene; si
+# faltan herramientas opcionales, ofrece instalarlas (solo en una terminal).
+check_dependencies() {
+    say "Comprobando dependencias..."
+    PATH="$TOOLS_DIR/bin:$PATH"
+
+    local fatal=0 version cmd missing_utils=()
+    if command -v docker > /dev/null 2>&1; then
+        version=$(docker version --format '{{.Client.Version}}' 2>/dev/null < /dev/null || true)
+        ok "Docker (cliente ${version:-desconocido})"
+    else
+        fail "Docker: no está instalado. Sin Docker no hay nada que auditar; instálelo siguiendo https://docs.docker.com/engine/install/"
+        fatal=1
+    fi
     if command -v sha256sum > /dev/null 2>&1; then
         SHA_CMD=(sha256sum)
     elif command -v shasum > /dev/null 2>&1; then
         SHA_CMD=(shasum -a 256)
-    else
-        die "Se necesita sha256sum o shasum para garantizar la integridad de las evidencias."
     fi
+    for cmd in "${REQUIRED_UTILS[@]}"; do
+        command -v "$cmd" > /dev/null 2>&1 || missing_utils+=("$cmd")
+    done
+    (( ${#SHA_CMD[@]} )) || missing_utils+=(sha256sum)
+    if (( ${#missing_utils[@]} )); then
+        fail "Faltan utilidades del sistema: ${missing_utils[*]} (instálelas con el gestor de paquetes de su distribución)"
+        fatal=1
+    else
+        ok "Bash ${BASH_VERSION%%(*}, sha256sum, tar y utilidades del sistema"
+    fi
+    (( fatal )) && die "Faltan dependencias obligatorias."
+
+    local tool missing=()
+    for tool in checkov hadolint trivy; do
+        if command -v "$tool" > /dev/null 2>&1; then
+            ok "$(tool_label "$tool") $(tool_version "$tool")"
+        else
+            note "$(tool_label "$tool"): no instalado (opcional: $(tool_purpose "$tool"))"
+            missing+=("$tool")
+        fi
+    done
+
+    if (( ${#missing[@]} )); then
+        if [[ -t 0 ]]; then
+            local answer labels=()
+            for tool in "${missing[@]}"; do labels+=("$(tool_label "$tool")"); done
+            ask answer "¿Instalar ahora $(join_by ", " "${labels[@]}") en $TOOLS_DIR? [S/n]: "
+            case ${answer,,} in
+                n | no) say "  Se continúa sin ellas." ;;
+                *) install_tools "${missing[@]}" ;;
+            esac
+        else
+            say "  Ejecute el script en una terminal para que ofrezca instalarlas."
+        fi
+    fi
+
     command -v checkov > /dev/null 2>&1 && HAVE_CHECKOV=1
     command -v hadolint > /dev/null 2>&1 && HAVE_HADOLINT=1
     command -v trivy > /dev/null 2>&1 && HAVE_TRIVY=1
     return 0
 }
+
+tool_label() {
+    case $1 in
+        checkov) printf 'Checkov' ;;
+        hadolint) printf 'Hadolint' ;;
+        trivy) printf 'Trivy' ;;
+    esac
+}
+tool_purpose() {
+    case $1 in
+        checkov | hadolint) printf 'buenas prácticas en Dockerfile' ;;
+        trivy) printf 'vulnerabilidades de las imágenes' ;;
+    esac
+}
+
+install_tools() {
+    local tool
+    if ! mkdir -p -- "$TOOLS_DIR/bin"; then
+        note "No se pudo crear $TOOLS_DIR: se continúa sin instalar nada."
+        return
+    fi
+    for tool in "$@"; do
+        say "  Instalando $(tool_label "$tool")..."
+        if "install_$tool"; then
+            ok "$(tool_label "$tool") $(tool_version "$tool") instalado"
+        else
+            note "No se pudo instalar $(tool_label "$tool"); la auditoría continuará sin él."
+        fi
+    done
+}
+
+arch_name() {
+    case $(uname -m) in
+        x86_64 | amd64) printf 'x86_64' ;;
+        aarch64 | arm64) printf 'arm64' ;;
+        *) return 1 ;;
+    esac
+}
+
+download() {
+    if command -v curl > /dev/null 2>&1; then
+        curl -fsSL --retry 2 -o "$2" "$1"
+    elif command -v wget > /dev/null 2>&1; then
+        wget -q -O "$2" "$1"
+    else
+        say "    Se necesita curl o wget para descargar."
+        return 1
+    fi
+}
+
+# fetch_verified URL DESTINO SHA256: descarga el fichero y lo descarta si su hash no coincide.
+fetch_verified() {
+    local url=$1 dest=$2 expected=$3 actual
+    if ! download "$url" "$dest"; then
+        say "    No se pudo descargar $url"
+        rm -f -- "$dest"
+        return 1
+    fi
+    actual=$(file_hash "$dest")
+    if [[ $actual != "$expected" ]]; then
+        say "    El SHA-256 de la descarga no coincide (esperado $expected, obtenido $actual): se descarta."
+        rm -f -- "$dest"
+        return 1
+    fi
+}
+
+install_hadolint() {
+    local arch tmp="$TOOLS_DIR/bin/.hadolint.tmp"
+    arch=$(arch_name) || { say "    Arquitectura $(uname -m) no soportada: instale Hadolint manualmente."; return 1; }
+    fetch_verified "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-linux-${arch}" \
+        "$tmp" "${TOOL_SHA256[hadolint-$arch]}" || return 1
+    chmod 755 -- "$tmp" && mv -f -- "$tmp" "$TOOLS_DIR/bin/hadolint"
+}
+
+install_trivy() {
+    local arch asset tmp rc=1
+    arch=$(arch_name) || { say "    Arquitectura $(uname -m) no soportada: instale Trivy manualmente."; return 1; }
+    asset="trivy_${TRIVY_VERSION}_Linux-$([[ $arch == x86_64 ]] && echo 64bit || echo ARM64).tar.gz"
+    tmp=$(mktemp -d "$TOOLS_DIR/.trivy.XXXXXX") || return 1
+    if fetch_verified "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${asset}" \
+        "$tmp/$asset" "${TOOL_SHA256[trivy-$arch]}" \
+        && tar --no-same-owner -xzf "$tmp/$asset" -C "$tmp" trivy \
+        && chmod 755 -- "$tmp/trivy" && mv -f -- "$tmp/trivy" "$TOOLS_DIR/bin/trivy"; then
+        rc=0
+    fi
+    rm -rf -- "$tmp"
+    return "$rc"
+}
+
+# Instala Checkov en un entorno virtual propio para no tocar el Python del sistema.
+install_checkov() {
+    local log="$TOOLS_DIR/instalacion_checkov.log" req="$SCRIPT_DIR/requirements.txt"
+    local -a packages=(-r "$req")
+    [[ -f $req ]] || packages=("checkov>=3.2,<4")
+    if ! command -v python3 > /dev/null 2>&1 \
+        || ! python3 -c 'import sys, venv, ensurepip; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+        say "    Checkov necesita Python 3.9 o superior con el módulo venv (Debian/Ubuntu: sudo apt install python3-venv)."
+        return 1
+    fi
+    say "    Creando un entorno virtual con Checkov (puede tardar unos minutos)..."
+    if python3 -m venv "$TOOLS_DIR/venv" > "$log" 2>&1 \
+        && "$TOOLS_DIR/venv/bin/pip" install --disable-pip-version-check "${packages[@]}" >> "$log" 2>&1 < /dev/null; then
+        ln -sf -- "$TOOLS_DIR/venv/bin/checkov" "$TOOLS_DIR/bin/checkov"
+    else
+        say "    Falló la instalación; detalles en $log"
+        return 1
+    fi
+}
+
 tool_version() {
     local v
     v=$("$1" --version 2>/dev/null < /dev/null | head -n 1)
@@ -1473,8 +1653,8 @@ main() {
     if (( $# )); then
         say "Aviso: DockerAuditor no usa opciones ni argumentos; se ignoran: $*" >&2
     fi
+    check_dependencies
     setup_docker_access
-    detect_tools
     choose_directories
     prepare_output
     write_header

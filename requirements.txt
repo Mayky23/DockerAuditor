@@ -1,2 +1,2 @@
-# Dependencia opcional: análisis de Dockerfile con Checkov.
+# Checkov (opcional): DockerAuditor lo instala automáticamente si falta.
 checkov>=3.2,<4
